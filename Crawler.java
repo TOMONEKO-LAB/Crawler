@@ -120,13 +120,17 @@ public class Crawler {
 
   // テストコード
   public static void main(String[] args) {
+    if (args.length < 1) {
+      System.err.println("Usage: java Crawler <url>");
+      return;
+    }
     try {
       // 1. 設定生成
-      Settings settings = new Settings(Paths.get("www.rakuten.co.jp"));
+      Settings settings = new Settings(Paths.get("output"));
       settings.setDebug(true);
 
       // 2. クローラ生成
-      String url = "https://www.rakuten.co.jp/";
+      String url = args[0];
       Crawler crawler = new Crawler(url, settings);
 
       // 3. 実行

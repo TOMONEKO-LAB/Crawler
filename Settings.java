@@ -1,7 +1,6 @@
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;          // Path, Paths
 
-public class Settings implements java.io.Serializable {
+public class Settings {
   private boolean debug;                    // デバッグモード
   private int bufferSize;                   // バッファサイズ
   private String defaultExtension;          // デフォルト拡張子
