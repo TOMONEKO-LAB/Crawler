@@ -5,12 +5,14 @@ import org.jsoup.select.Elements;
 public class Parser {
   private final Document document;          // ダウンロード対象のHTMLドキュメント
   private final FetchFiles fetcher;         // Fetchするためのインスタンス
+  private final Settings settings;          // 設定
 
   public Parser(Document document, Settings settings) throws Exception {
     if (document == null) {
       throw new IllegalArgumentException("document must not be null");
     }
     this.document = document;
+    this.settings = settings;
     this.fetcher = new FetchFiles(settings);
   }
 
@@ -41,7 +43,10 @@ public class Parser {
       } else if (element.hasAttr("content")) {
         attrUrl = element.absUrl("content");
       }
-      if (!attrUrl.isEmpty() && fetcher.getContentType(attrUrl).startsWith("text/html") && !urls.contains(element)) {
+      if (!attrUrl.isEmpty() && fetcher.getContentType(attrUrl).contains("text/html") && !urls.contains(element)) {
+        if (settings.isDebug()) {
+          System.out.println("Found downloadable HTML element: " + element);
+        }
         urls.add(element);
       }
     }

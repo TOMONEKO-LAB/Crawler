@@ -89,6 +89,10 @@ public class FetchFiles {
   public boolean isDownloadable(String url) throws Exception{
     try {
       HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
+      if (settings.isDebug()) {
+        System.out.println("Checking if URL is downloadable: " + url);
+        System.out.println("Content-Type: " + connection.getHeaderField("Content-Type"));
+      }
       return connection.getResponseCode() == HttpURLConnection.HTTP_OK;
     } catch (Exception e) {
       return false;

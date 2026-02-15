@@ -150,7 +150,7 @@ public class Crawler {
     }
     try {
       // 1. 設定生成
-      Settings settings = new Settings(Paths.get("output"), 0);
+      Settings settings = new Settings(Paths.get("output"), 1);
       settings.setDebug(true);
 
       // 2. クローラ生成
