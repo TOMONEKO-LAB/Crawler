@@ -1,5 +1,8 @@
 import java.io.*;                           // ByteArrayInputStream, FileOutputStream, IOException, InputStream, OutputStream;
+import java.nio.charset.Charset;
 import java.nio.file.*;                     // Files, Path, Paths
+import java.util.stream.Collectors;
+
 import org.jsoup.nodes.*;                   // Document, Element
 import java.net.URI;
 import org.jsoup.Jsoup;
@@ -9,114 +12,135 @@ public class Crawler {
   private final Settings settings;          // 設定
   private final FetchFiles fetcher;         // Fetchするためのインスタンス
 
-    public Crawler(String url, Settings settings) {
-      this.url = url;
-      this.settings = settings;
-      fetcher = new FetchFiles(settings);
-    }
+  public Crawler(String url, Settings settings) {
+    this.url = url;
+    this.settings = settings;
+    fetcher = new FetchFiles(settings);
+  }
 
-    public void crawl() throws Exception {
-
-      Document doc = fetchDocument();
-      Parser parser = new Parser(doc);
-
-      processStylesheets(parser);
-      processScripts(parser);
-      processImages(parser);
-      processIcons(parser);
-
-      saveHtml(doc);
-    }
-
-    protected Document fetchDocument() throws IOException {
-      return Jsoup.connect(url).get();
-    }
-
-    protected void processStylesheets(Parser parser) throws Exception {
-      Path cssDir = settings.getSaveDirectory().resolve("css");
-      Files.createDirectories(cssDir);
-
-      for (Element link : parser.selectStylesheets()) {
-        String href = link.absUrl("href");
-        if (!fetcher.isDownloadable(href)) continue;
-
-        Path p = Paths.get(new URI(href).getPath());
-        if (p.getFileName() == null) continue;
-        String filename = p.getFileName().toString();
-
-        Path dest = cssDir.resolve(filename);
-        fetcher.download(href, dest);
-
-        parser.rewriteAttribute(link, "href", "css/" + filename);
+  public void crawl() throws Exception {
+    Document doc = fetchDocument();
+    Parser parser = new Parser(doc, settings);
+    int depth = settings.getDepth();
+    if (depth > 0) {
+      for (Element element : parser.getHtml()) {
+        String url = element.absUrl("href");
+        Path newSaveDirectory = settings.getSaveDirectory().resolve(String.valueOf(url.hashCode()));
+        Settings newSettings = new Settings(newSaveDirectory, depth - 1);
+        newSettings.setDebug(settings.isDebug());
+        Crawler crawler = new Crawler(url, newSettings);
+        crawler.crawl();
+        if (settings.getSaveDirectory().getParent() != null) {
+          Path parentIndex = settings.getSaveDirectory().resolve("index.html").getParent().relativize(settings.getSaveDirectory().getParent().resolve("index.html"));
+          element.attr("href", "./" + parentIndex.toString());
+        } else {
+          Path relativePath = settings.getSaveDirectory().relativize(newSaveDirectory.resolve("index.html"));
+          element.attr("href", "./" + relativePath.toString());
+        }
       }
     }
+    processStylesheets(parser);
+    processScripts(parser);
+    processImages(parser);
+    processIcons(parser);
 
-    protected void processScripts(Parser parser) throws Exception {
-      Path jsDir = settings.getSaveDirectory().resolve("js");
-      Files.createDirectories(jsDir);
+    processHtml(doc);
+  }
 
-      for (Element script : parser.selectScripts()) {
-        String href = script.absUrl("src");
-        if (!fetcher.isDownloadable(href)) continue;
+  protected Document fetchDocument() throws IOException {
+    fetcher.download(url, settings.getSaveDirectory().resolve("index.html"));
+    return Jsoup.parse(
+      Files.lines(settings.getSaveDirectory().resolve("index.html"), Charset.forName("UTF-8"))
+      .collect(Collectors.joining(System.getProperty("line.separator"))),
+      url
+    );
+  }
 
-        Path p = Paths.get(new URI(href).getPath());
-        if (p.getFileName() == null) continue;
-        String filename = p.getFileName().toString();
+  protected void processStylesheets(Parser parser) throws Exception {
+    Path cssDir = settings.getSaveDirectory().resolve("stylesheets");
+    Files.createDirectories(cssDir);
 
-        Path dest = jsDir.resolve(filename);
-        fetcher.download(href, dest);
+    for (Element link : parser.selectStylesheets()) {
+      String href = link.absUrl("href");
+      if (!fetcher.isDownloadable(href)) continue;
 
-        parser.rewriteAttribute(script, "src", "js/" + filename);
-      }
+      Path p = Paths.get(new URI(href).getPath());
+      if (p.getFileName() == null) continue;
+      String filename = p.getFileName().toString();
+
+      Path dest = cssDir.resolve(filename);
+      String downloadedPath = fetcher.download(href, dest);
+
+      parser.rewriteAttribute(link, "href", downloadedPath);
     }
+  }
 
-    protected void processImages(Parser parser) throws Exception {
-      Path imgDir = settings.getSaveDirectory().resolve("img");
-      Files.createDirectories(imgDir);
+  protected void processScripts(Parser parser) throws Exception {
+    Path jsDir = settings.getSaveDirectory().resolve("scripts");
+    Files.createDirectories(jsDir);
 
-      for (Element img : parser.selectImages()) {
-        String href = img.absUrl("src");
-        if (!fetcher.isDownloadable(href)) continue;
+    for (Element script : parser.selectScripts()) {
+      String href = script.absUrl("src");
+      if (!fetcher.isDownloadable(href)) continue;
 
-        Path p = Paths.get(new URI(href).getPath());
-        if (p.getFileName() == null) continue;
-        String filename = p.getFileName().toString();
+      Path p = Paths.get(new URI(href).getPath());
+      if (p.getFileName() == null) continue;
+      String filename = p.getFileName().toString();
 
-        Path dest = imgDir.resolve(filename);
-        fetcher.download(href, dest);
+      Path dest = jsDir.resolve(filename);
+      String downloadedPath = fetcher.download(href, dest);
 
-        parser.rewriteAttribute(img, "src", "img/" + filename);
-      }
+      parser.rewriteAttribute(script, "src", downloadedPath);
     }
+  }
 
-    protected void processIcons(Parser parser) throws Exception {
-      Path iconDir = settings.getSaveDirectory().resolve("icon");
-      Files.createDirectories(iconDir);
+  protected void processImages(Parser parser) throws Exception {
+    Path imgDir = settings.getSaveDirectory().resolve("images");
+    Files.createDirectories(imgDir);
 
-      for (Element link : parser.selectIcons()) {
-        String href = link.absUrl("href");
-        if (!fetcher.isDownloadable(href)) continue;
+    for (Element img : parser.selectImages()) {
+      String href = img.absUrl("src");
+      if (!fetcher.isDownloadable(href)) continue;
 
-        Path p = Paths.get(new URI(href).getPath());
-        if (p.getFileName() == null) continue;
-        String filename = p.getFileName().toString();
+      Path p = Paths.get(new URI(href).getPath());
+      if (p.getFileName() == null) continue;
+      String filename = p.getFileName().toString();
 
-        Path dest = iconDir.resolve(filename);
-        fetcher.download(href, dest);
+      Path dest = imgDir.resolve(filename);
+      String downloadedPath = fetcher.download(href, dest);
 
-        parser.rewriteAttribute(link, "href", "icon/" + filename);
-      }
+      parser.rewriteAttribute(img, "src", downloadedPath);
     }
+  }
 
-    protected void saveHtml(Document document) throws IOException {
-      Path htmlPath = settings.getSaveDirectory().resolve("index.html");
-      try (
-        InputStream in = new ByteArrayInputStream(document.html().getBytes(settings.getDefaultCharSet()));
-        OutputStream out = new FileOutputStream(htmlPath.toString())
-      ) {
-        fetcher.copy(in, out);
-      }
+  protected void processIcons(Parser parser) throws Exception {
+    Path iconDir = settings.getSaveDirectory().resolve("icons");
+    Files.createDirectories(iconDir);
+
+    for (Element link : parser.selectIcons()) {
+      String href = link.absUrl("href");
+      if (!fetcher.isDownloadable(href)) continue;
+
+      Path p = Paths.get(new URI(href).getPath());
+      if (p.getFileName() == null) continue;
+      String filename = p.getFileName().toString();
+
+      Path dest = iconDir.resolve(filename);
+      String downloadedPath = fetcher.download(href, dest);
+
+      parser.rewriteAttribute(link, "href", downloadedPath);
     }
+  }
+
+  protected void processHtml(Document document) throws IOException {
+    Path htmlPath = settings.getSaveDirectory().resolve("index.html");
+    try (
+      InputStream in = new ByteArrayInputStream(document.html().getBytes(settings.getDefaultCharSet()));
+      OutputStream out = new FileOutputStream(htmlPath.toString())
+    ) {
+      fetcher.copy(in, out);
+    }
+  }
 
   // テストコード
   public static void main(String[] args) {
@@ -126,7 +150,7 @@ public class Crawler {
     }
     try {
       // 1. 設定生成
-      Settings settings = new Settings(Paths.get("output"));
+      Settings settings = new Settings(Paths.get("output"), 0);
       settings.setDebug(true);
 
       // 2. クローラ生成
