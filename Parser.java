@@ -1,10 +1,9 @@
-import java.util.*;                         // ArrayList, List
 import org.jsoup.nodes.*;                   // Document, Element
 import org.jsoup.select.Elements;
 
 public class Parser {
   private final Document document;          // ダウンロード対象のHTMLドキュメント
-  private final FetchFiles fetcher;         // Fetchするためのインスタンス
+  private final Fetcher fetcher;            // Fetchするためのインスタンス
   private final Settings settings;          // 設定
 
   public Parser(Document document, Settings settings) throws Exception {
@@ -13,7 +12,7 @@ public class Parser {
     }
     this.document = document;
     this.settings = settings;
-    this.fetcher = new FetchFiles(settings);
+    this.fetcher = new Fetcher(settings);
   }
 
   public Elements selectDownloadableElements() throws Exception {
@@ -35,15 +34,12 @@ public class Parser {
   public Elements getHtml () throws Exception {
     Elements urls = new Elements();
     String attrUrl = "";
-    for (Element element : selectDownloadableElements()) {
-      if (element.hasAttr("src")) {
-        attrUrl = element.absUrl("src");
-      } else if (element.hasAttr("href")) {
-        attrUrl = element.absUrl("href");
-      } else if (element.hasAttr("content")) {
-        attrUrl = element.absUrl("content");
+    for (Element element : document.select("a[href]")) {
+      attrUrl = element.absUrl("href");
+      if (attrUrl.contains("#")) {
+        continue;
       }
-      if (!attrUrl.isEmpty() && fetcher.getContentType(attrUrl).contains("text/html") && !urls.contains(element)) {
+      if (!attrUrl.isEmpty() && !urls.contains(element)) {
         if (settings.isDebug()) {
           System.out.println("Found downloadable HTML element: " + element);
         }

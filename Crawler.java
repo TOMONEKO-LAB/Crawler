@@ -2,7 +2,6 @@ import java.io.*;                           // ByteArrayInputStream, FileOutputS
 import java.nio.charset.Charset;
 import java.nio.file.*;                     // Files, Path, Paths
 import java.util.stream.Collectors;
-
 import org.jsoup.nodes.*;                   // Document, Element
 import java.net.URI;
 import org.jsoup.Jsoup;
@@ -10,26 +9,32 @@ import org.jsoup.Jsoup;
 public class Crawler {
   private final String url;                 // フェッチ先URL
   private final Settings settings;          // 設定
-  private final FetchFiles fetcher;         // Fetchするためのインスタンス
+  private final Fetcher fetcher;            // Fetchするためのインスタンス
 
   public Crawler(String url, Settings settings) {
     this.url = url;
     this.settings = settings;
-    fetcher = new FetchFiles(settings);
+    fetcher = new Fetcher(settings);
   }
 
   public void crawl() throws Exception {
+    crawl(settings.getDepth());
+  }
+
+  private void crawl(int depth) throws Exception {
     Document doc = fetchDocument();
+    if (doc == null) {
+      return;
+    }
     Parser parser = new Parser(doc, settings);
-    int depth = settings.getDepth();
     if (depth > 0) {
       for (Element element : parser.getHtml()) {
         String url = element.absUrl("href");
-        Path newSaveDirectory = settings.getSaveDirectory().resolve(String.valueOf(url.hashCode()));
+        Path newSaveDirectory = settings.getSaveDirectory().resolve(String.valueOf(Math.abs(url.hashCode())));
         Settings newSettings = new Settings(newSaveDirectory, depth - 1);
         newSettings.setDebug(settings.isDebug());
         Crawler crawler = new Crawler(url, newSettings);
-        crawler.crawl();
+        crawler.crawl(depth - 1);
         if (settings.getSaveDirectory().getParent() != null) {
           Path parentIndex = settings.getSaveDirectory().resolve("index.html").getParent().relativize(settings.getSaveDirectory().getParent().resolve("index.html"));
           element.attr("href", "./" + parentIndex.toString());
@@ -48,9 +53,12 @@ public class Crawler {
   }
 
   protected Document fetchDocument() throws IOException {
-    fetcher.download(url, settings.getSaveDirectory().resolve("index.html"));
+    String result = fetcher.download(url, settings.getSaveDirectory().resolve("index.html"));
+    if (result == null) {
+      return null;
+    }
     return Jsoup.parse(
-      Files.lines(settings.getSaveDirectory().resolve("index.html"), Charset.forName("UTF-8"))
+      Files.lines(settings.getSaveDirectory().resolve("index.html"), Charset.forName(settings.getDefaultCharSet()))
       .collect(Collectors.joining(System.getProperty("line.separator"))),
       url
     );
@@ -150,7 +158,7 @@ public class Crawler {
     }
     try {
       // 1. 設定生成
-      Settings settings = new Settings(Paths.get("output"), 1);
+      Settings settings = new Settings(Paths.get("rakuten"), 1);
       settings.setDebug(true);
 
       // 2. クローラ生成

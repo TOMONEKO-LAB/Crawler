@@ -2,11 +2,11 @@ import java.io.*;               // IOException, InputStream, OutputStream
 import java.nio.file.*;         // Path, Files
 import java.net.*;              // HttpURLConnection, URI
 
-public class FetchFiles {
+public class Fetcher {
 
   private final Settings settings;          // 設定
 
-  public FetchFiles(Settings settings) {
+  public Fetcher(Settings settings) {
     if (settings == null) {
       throw new IllegalArgumentException("settings must not be null");
     }
@@ -17,11 +17,17 @@ public class FetchFiles {
     Files.createDirectories(destination.getParent());
     HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
     connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+    if (connection.getResponseCode() == HttpURLConnection.HTTP_FORBIDDEN) {
+      return null;
+    }
+    if (connection.getContentEncoding() != null && !connection.getContentEncoding().equals(settings.getDefaultCharSet())) {
+      settings.setDefaultCharSet(connection.getContentEncoding());
+    }
     String extension = resolveExtension(connection.getHeaderField("Content-Type"));
     String basename = destination.getFileName().toString();
     if (basename.lastIndexOf('.') == -1) {
       destination = destination.resolveSibling(basename + extension);
-    } else if (connection.getURL().getQuery() != null) {
+    } else if (connection.getURL().getQuery() != null &&  !connection.getContentType().contains("text/html")) {
       String query = connection.getURL().getQuery();
       destination = destination.resolveSibling(basename.substring(0, basename.lastIndexOf('.')) + query.hashCode() + extension);
     }
