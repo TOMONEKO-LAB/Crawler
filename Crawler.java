@@ -1,5 +1,4 @@
 import java.io.*;                           // ByteArrayInputStream, FileOutputStream, IOException, InputStream, OutputStream;
-import java.nio.charset.Charset;
 import java.nio.file.*;                     // Files, Path, Paths
 import java.util.stream.Collectors;
 import org.jsoup.nodes.*;                   // Document, Element
@@ -14,7 +13,7 @@ public class Crawler {
   public Crawler(String url, Settings settings) {
     this.url = url;
     this.settings = settings;
-    fetcher = new Fetcher(settings);
+    this.fetcher = new Fetcher(settings);
   }
 
   public void crawl() throws Exception {
@@ -27,28 +26,34 @@ public class Crawler {
       return;
     }
     Parser parser = new Parser(doc, settings);
-    if (depth > 0) {
-      for (Element element : parser.getHtml()) {
-        String url = element.absUrl("href");
-        Path newSaveDirectory = settings.getSaveDirectory().resolve(String.valueOf(Math.abs(url.hashCode())));
-        Settings newSettings = new Settings(newSaveDirectory, depth - 1);
-        newSettings.setDebug(settings.isDebug());
-        Crawler crawler = new Crawler(url, newSettings);
-        crawler.crawl(depth - 1);
-        if (settings.getSaveDirectory().getParent() != null) {
-          Path parentIndex = settings.getSaveDirectory().resolve("index.html").getParent().relativize(settings.getSaveDirectory().getParent().resolve("index.html"));
-          element.attr("href", "./" + parentIndex.toString());
-        } else {
-          Path relativePath = settings.getSaveDirectory().relativize(newSaveDirectory.resolve("index.html"));
-          element.attr("href", "./" + relativePath.toString());
-        }
-      }
-    }
     processStylesheets(parser);
     processScripts(parser);
     processImages(parser);
     processIcons(parser);
-
+    if (depth > 0) {
+      for (Element element : parser.getHtml()) {
+        try{
+          String url = element.absUrl("href");
+          Path newSaveDirectory = settings.getSaveDirectory().resolve(String.valueOf(Math.abs(url.hashCode())));
+          Settings newSettings = new Settings(newSaveDirectory, depth - 1);
+          newSettings.setDebug(settings.isDebug());
+          Crawler crawler = new Crawler(url, newSettings);
+          crawler.crawl(depth - 1);
+          if (settings.getSaveDirectory().getParent() != null) {
+            Path parentIndex = settings.getSaveDirectory().resolve("index.html").getParent().relativize(settings.getSaveDirectory().getParent().resolve("index.html"));
+            element.attr("href", "./" + parentIndex.toString());
+          } else {
+            Path relativePath = settings.getSaveDirectory().relativize(newSaveDirectory.resolve("index.html"));
+            element.attr("href", "./" + relativePath.toString());
+          }
+        } catch (Exception e) {
+          if (settings.isDebug()) {
+            System.err.println("Failed to crawl: " + element.absUrl("href"));
+            e.printStackTrace();
+          }
+        }
+      }
+    }
     processHtml(doc);
   }
 
@@ -58,7 +63,7 @@ public class Crawler {
       return null;
     }
     return Jsoup.parse(
-      Files.lines(settings.getSaveDirectory().resolve("index.html"), Charset.forName(settings.getDefaultCharSet()))
+      Files.lines(settings.getSaveDirectory().resolve("index.html"))
       .collect(Collectors.joining(System.getProperty("line.separator"))),
       url
     );

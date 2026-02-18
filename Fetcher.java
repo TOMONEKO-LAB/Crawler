@@ -40,7 +40,6 @@ public class Fetcher {
 
     if (settings.isDebug()) {
       System.out.println("Downloaded: " + url);
-      System.out.println("Content-Type: " + connection.getHeaderField("Content-Type"));
       System.out.println("Save: " + destination);
     }
     return destination.toString().replaceAll(settings.getSaveDirectory().toString(), ".");
@@ -93,6 +92,9 @@ public class Fetcher {
   }
 
   public boolean isDownloadable(String url) throws Exception{
+    if (url.contains("#") || url.isEmpty()) {
+      return false;
+    }
     try {
       HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
       if (settings.isDebug()) {
