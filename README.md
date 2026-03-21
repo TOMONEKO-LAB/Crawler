@@ -10,7 +10,7 @@ This crawler is used jsoup.
 - Download linked `CSS` files
 - Download linked `JavaScript` files
 - Download image resources referenced by `<img>` tags
-- Download icon files referenced by `<link rel="icon">`
+- Download icon files referenced by `<link rel="*icon*">`
 - Rewrite resource paths in `HTML` to local files
 
 ### Settings
