@@ -58,6 +58,7 @@ public class Crawler {
 
     // URLを正規化
     String startUrl = normalizer.normalize(url);
+
     // 正規化の結果、URLがダウンロード対象外と判断された場合は終了
     if (startUrl == null) {
       if (settings.isDebug()) {
@@ -80,43 +81,54 @@ public class Crawler {
     Map<String, Integer> retryCounts = new ConcurrentHashMap<>();
 
     int batchSize = settings.getPageBatchSize();
-    List<Future<Void>> allFutures = new ArrayList<>();
 
-    while (!queue.isEmpty()) {
-      // キューからバッチサイズ分のURLを取得
-      List<SiteNode> batch = new ArrayList<>();
-      for (int i = 0; i < batchSize; i++) {
-        SiteNode candidate = queue.pollLast();
-        if (candidate == null) {
+    // キューが空になるまでループを継続
+    while (true) {
+      List<Future<Void>> allFutures = new ArrayList<>();
+
+      // キューにURLがあり、最大ページ数に達していない間
+      while (!queue.isEmpty() && visited.size() < settings.getMaxPages()) {
+
+        // キューからバッチサイズ分のURLを取得
+        List<SiteNode> batch = new ArrayList<>();
+        for (int i = 0; i < batchSize && !queue.isEmpty(); i++) {
+          SiteNode candidate = queue.pollLast();
+          if (candidate == null) {
+            break;
+          }
+          batch.add(candidate);
+        }
+
+        // バッチが空の場合はループを抜ける
+        if (batch.isEmpty()) {
           break;
         }
-        batch.add(candidate);
+
+        // バッチ内の各ページをスレッドプールへ
+        for (SiteNode node : batch) {
+          allFutures.add(pageExecutor.submit(new Callable<Void>() {
+            @Override
+            public Void call() throws Exception {
+              processPageNode(node, startOrigin, depth, retryCounts);
+              return null;
+            }
+          }));
+        }
       }
 
-      // バッチが空の場合は次のループへ
-      if (batch.isEmpty()) {
-        continue;
+      // バッチが取得できなかった場合は外側ループを終了
+      if (allFutures.isEmpty()) {
+        break;
       }
 
-      // バッチ内の各ページをスレッドプールへ
-      for (SiteNode node : batch) {
-        allFutures.add(pageExecutor.submit(new Callable<Void>() {
-          @Override
-          public Void call() throws Exception {
-            processPageNode(node, startOrigin, depth, retryCounts);
-            return null;
+      // すべてのページ処理が完了するまで待機
+      for (Future<Void> future : allFutures) {
+        try {
+          future.get();
+        } catch (Exception e) {
+          if (settings.isDebug()) {
+            System.out.println("[Crawler]: " + "page task failed message=" + e.getMessage());
           }
-        }));
-      }
-    }
-
-    // すべてのページ処理が完了するまで待機
-    for (Future<Void> future : allFutures) {
-      try {
-        future.get();
-      } catch (Exception e) {
-        if (settings.isDebug()) {
-          System.out.println("[Crawler]: " + "page task failed message=" + e.getMessage());
         }
       }
     }
@@ -124,6 +136,7 @@ public class Crawler {
 
   // 1ページの処理
   private void processPageNode(SiteNode node, String startOrigin, int depth, Map<String, Integer> retryCounts) {
+
     // 指定した深さを超えている場合はスキップ
     if (node.getDepth() > depth) {
       if (settings.isDebug()) {
@@ -157,6 +170,7 @@ public class Crawler {
     }
 
     try {
+
       // URLをFetch
       FetchResult fetchResult = fetcher.fetch(node.getUrl());
       int status = fetchResult.getStatusCode();
@@ -269,7 +283,7 @@ public class Crawler {
         }
 
         // すでに訪問済みでないかつ次の深さが設定値以下の場合はキューに追加
-        if (!visited.contains(normalized) && node.getDepth() + 1 <= settings.getDepth()) {
+        if (!visited.contains(normalized) && node.getDepth() + 1 <= depth) {
           queue.addLast(new SiteNode(normalized, node.getDepth() + 1));
           if (settings.isDebug()) {
             System.out.println("[Crawler]: " + "push link=" + normalized + ", nextDepth=" + (node.getDepth() + 1));

@@ -20,8 +20,12 @@ public class FilenameGenerator {
     String path = uri.getPath();
     String fileName = extractFileName(path);
 
-    // 拡張子を決定
+    // URLに含まれている既存の拡張子を除去
     String baseName = fileName;
+    int lastDot = baseName.lastIndexOf('.');
+    if (lastDot > 0) {
+      baseName = baseName.substring(0, lastDot);
+    }
     String extension = extensionResolver.resolveExtension(contentType);
 
     // クエリパラメータがある場合はハッシュを付与
