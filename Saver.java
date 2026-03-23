@@ -1,6 +1,6 @@
-import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.io.*;                         // InputStream, OutputStream, IOException
+import java.nio.file.*;                   // Path, Paths, Files, StandardOpenOption
 
 public class Saver {
 

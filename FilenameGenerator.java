@@ -1,8 +1,5 @@
 import java.net.URI;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;   // HashMap, HashSet, Map, Set
 
 public class FilenameGenerator {
   private final Settings settings;

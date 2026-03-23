@@ -1,7 +1,7 @@
-import java.net.http.*;  // HttpClient, HttpRequest, HttpResponse
 import java.net.URI;
 import java.time.Duration;
 import java.io.IOException;
+import java.net.http.*;  // HttpClient, HttpRequest, HttpResponse
 
 public class Fetcher {
   private final Settings settings;  // 設定
