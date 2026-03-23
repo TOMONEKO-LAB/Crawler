@@ -1,126 +1,129 @@
-import java.io.*;               // IOException, InputStream, OutputStream
-import java.nio.file.*;         // Path, Files
-import java.net.*;              // HttpURLConnection, URI
+import java.net.http.*;  // HttpClient, HttpRequest, HttpResponse
+import java.net.URI;
+import java.time.Duration;
+import java.io.IOException;
 
 public class Fetcher {
+  private final Settings settings;  // 設定
+  private final HttpClient client;  // HTTPクライアント
 
-  private final Settings settings;          // 設定
+  static int THREAD_ERROR = 600;  // スレッドエラー
+  static int UNKNOWN_ERROR = 601;  // 不明なエラー
+  static int RETRY_EXHAUSTED = 602; // リトライ回数超過
 
   public Fetcher(Settings settings) {
-    if (settings == null) {
-      throw new IllegalArgumentException("settings must not be null");
-    }
     this.settings = settings;
+    this.client = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(settings.getTimeout()))
+        .version(HttpClient.Version.HTTP_2)
+        .followRedirects(HttpClient.Redirect.NORMAL)
+        .build();
   }
 
-  public String download(String url, Path destination) throws IOException {
-    Files.createDirectories(destination.getParent());
-    HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-    if (connection.getResponseCode() == HttpURLConnection.HTTP_FORBIDDEN) {
-      return null;
-    }
-    if (connection.getContentEncoding() != null && !connection.getContentEncoding().equals(settings.getDefaultCharSet())) {
-      settings.setDefaultCharSet(connection.getContentEncoding());
-    }
-    String extension = resolveExtension(connection.getHeaderField("Content-Type"));
-    String basename = destination.getFileName().toString();
-    if (basename.lastIndexOf('.') == -1) {
-      destination = destination.resolveSibling(basename + extension);
-    } else if (connection.getURL().getQuery() != null &&  !connection.getContentType().contains("text/html")) {
-      String query = connection.getURL().getQuery();
-      destination = destination.resolveSibling(basename.substring(0, basename.lastIndexOf('.')) + query.hashCode() + extension);
-    }
-    try (
-      InputStream in = connection.getInputStream();
-      OutputStream out = new FileOutputStream(destination.toString())
-    ) {
-      copy(in, out);
-    }
+  // フェッチ処理
+  public FetchResult fetch(String url) {
 
+    // リトライ回数の設定
+    int maxRetry = settings.getRetryCount();
     if (settings.isDebug()) {
-      System.out.println("Downloaded: " + url);
-      System.out.println("Save: " + destination);
+      System.out.println("[Fetcher]: " + "fetch start url=" + url + ", maxRetry=" + maxRetry);
     }
-    return destination.toString().replaceAll(settings.getSaveDirectory().toString(), ".");
-  }
 
-  private String resolveExtension(String contentType) {
-    switch (contentType.split(";")[0].trim()) {
-      case "application/octet-stream": return ".exe";
-      case "application/json": return ".json";
-      case "application/pdf": return ".pdf";
-      case "application/vnd.ms-excel": return ".xls";
-      case "application/rsds": return ".rsd";
-      case "application/rsd+xml": return ".xml";
-      case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": return ".xlsx";
-      case "application/vnd.ms-powerpoint": return ".ppt";
-      case "application/vnd.openxmlformats-officedocument.presentationml.presentation": return ".pptx";
-      case "application/msword": return ".doc";
-      case "application/vnd.openxmlformats-officedocument.wordprocessingml.document": return ".docx";
-      case "application/zip": return ".zip";
-      case "application/x-lzh": return ".lzh";
-      case "application/x-tar": return ".tar";
-      case "application/gzip": return ".gz";
+    // リトライループ
+    for (int attempt = 0; attempt <= maxRetry; attempt++) {
 
-      case "text/plain": return ".txt";
-      case "text/csv": return ".csv";
-      case "text/html": return ".html";
-      case "text/css": return ".css";
-      case "text/javascript": return ".js";
-      case "text/xml": return ".xml";
-
-      case "image/jpeg": return ".jpg";
-      case "image/png": return ".png";
-      case "image/gif": return ".gif";
-      case "image/bmp": return ".bmp";
-      case "image/x-ms-bmp": return ".bmp";
-      case "image/svg+xml": return ".svg";
-      case "image/tiff": return ".tiff";
-
-      case "audio/mpeg": return ".mp3";
-      case "audio/wav": return ".wav";
-      case "audio/midi": return ".midi";
-
-      case "video/mp4": return ".mp4";
-      case "video/mpeg": return ".mpeg";
-      case "video/avi": return ".avi";
-      case "video/3gp": return ".3gp";
-
-      default: return settings.getDefaultExtension();
-    }
-  }
-
-  public boolean isDownloadable(String url) throws Exception{
-    if (url.contains("#") || url.isEmpty()) {
-      return false;
-    }
-    try {
-      HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
+      // User-Agentの設定
+      String userAgent = settings.getUserAgent();
       if (settings.isDebug()) {
-        System.out.println("Checking if URL is downloadable: " + url);
-        System.out.println("Content-Type: " + connection.getHeaderField("Content-Type"));
+        System.out.println("[Fetcher]: " + "attempt=" + attempt + ", ua=" + userAgent);
       }
-      return connection.getResponseCode() == HttpURLConnection.HTTP_OK;
-    } catch (Exception e) {
+
+      // HTTPリクエスト作成
+      HttpRequest request = HttpRequest.newBuilder()
+          .uri(URI.create(url))
+          .timeout(Duration.ofSeconds(settings.getTimeout()))
+          .header("User-Agent", userAgent)
+          .GET()
+          .build();
+
+      try {
+        // HTTPリクエスト送信
+        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        // ステータスコード取得
+        int status = response.statusCode();
+        if (settings.isDebug()) {
+          System.out.println("[Fetcher]: " + "response status=" + status + ", attempt=" + attempt);
+        }
+
+        // Bot判定の場合はリトライ
+        if ((status == 429 || status == 403) && attempt < maxRetry) {
+          if (settings.isDebug()) {
+            System.out.println("[Fetcher]: " + "retry by status=" + status + ", nextAttempt=" + (attempt + 1));
+          }
+
+          // スレッドでの待機処理
+          if (!sleepBackoff()) {
+            return new FetchResult(url, THREAD_ERROR, new byte[0], null, null);
+          }
+          continue;
+        }
+
+        return new FetchResult(
+            url,
+            status,
+            response.body(),
+            response.headers().firstValue("Content-Type").orElse(null),
+            null
+        );
+
+      // HTTP通信がうまくいかなかった場合
+      } catch (IOException e) {
+        if (settings.isDebug()) {
+          System.out.println("[Fetcher]: " + "io error url=" + url + ", message=" + e.getMessage());
+        }
+        return new FetchResult(url, UNKNOWN_ERROR, new byte[0], null, null);
+      } catch (InterruptedException e) {
+        if (settings.isDebug()) {
+          System.out.println("[Fetcher]: " + "interrupted url=" + url);
+        }
+        Thread.currentThread().interrupt();
+        return new FetchResult(url, THREAD_ERROR, new byte[0], null, null);
+      }
+    }
+
+    // リトライ回数を超過した場合
+    return new FetchResult(url, RETRY_EXHAUSTED, new byte[0], null, null);
+  }
+
+  // リトライするための待機処理
+  private boolean sleepBackoff() {
+
+    // リトライのバックオフ時間が0以下の場合
+    if (settings.getRetryBackoffMillis() <= 0) {
+      return true;
+    }
+    if (settings.isDebug()) {
+      System.out.println("[Fetcher]: " + "sleep backoff ms=" + settings.getRetryBackoffMillis());
+    }
+    try {
+      Thread.sleep(settings.getRetryBackoffMillis());
+      return true;
+
+    // スレッドが中断された場合
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
       return false;
     }
   }
 
-  public String getContentType(String url) throws Exception {
-    try {
-      HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
-      return connection.getHeaderField("Content-Type");
-    } catch (Exception e) {
-      return null;
-    }
-  }
-
-  protected void copy(InputStream in, OutputStream out) throws IOException {
-    byte[] buffer = new byte[settings.getBufferSize()];
-    int n;
-    while ((n = in.read(buffer)) != -1) {
-      out.write(buffer, 0, n);
-    }
+  public static void main(String[] args) {
+    Settings settings = new Settings();
+    Fetcher fetcher = new Fetcher(settings);
+    String url = args.length > 0 ? args[0] : "https://example.com";
+    FetchResult result = fetcher.fetch(url);
+    System.out.println("url=" + result.getUrl());
+    System.out.println("status=" + result.getStatusCode());
+    System.out.println("contentType=" + result.getContentType());
+    System.out.println("bytes=" + result.getBody().length);
   }
 }
